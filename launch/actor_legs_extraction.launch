@@ -1,0 +1,4 @@
+<launch>
+  <rosparam file="$(find actor_legs_extraction)/config/legs.yaml" command="load" />
+  <node name="legs_extraction" pkg="actor_legs_extraction" type="actor_legs_extraction_node" output="screen"/>
+</launch>
