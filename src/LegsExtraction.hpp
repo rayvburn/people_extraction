@@ -12,6 +12,12 @@
 #include <obstacle_detector/Obstacles.h>
 #include <people_msgs/PositionMeasurementArray.h>
 #include <gazebo_msgs/ModelStates.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/TwistStamped.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <mutex>
 
 class LegsExtraction {
 public:
@@ -21,8 +27,8 @@ public:
 private:
 	struct Person {
 		std::string name;
-		geometry_msgs::Pose pose;
-		geometry_msgs::Twist vel;
+		geometry_msgs::PoseStamped pose;
+		geometry_msgs::TwistStamped vel;
 	};
 
 	struct PersonAsCircleObstacle {
@@ -34,6 +40,7 @@ private:
 	/**
 	 * @brief
 	 * @note This is a high frequency topic
+	 * @note TODO: message_filters, TimeSynchronizer?
 	 * @param msg
 	 */
 	void gazeboModelStateCallback(const gazebo_msgs::ModelStates::ConstPtr &msg);
@@ -53,8 +60,13 @@ private:
 	 */
 	double computeDistance(geometry_msgs::Point from, geometry_msgs::Point to) const;
 
-	static constexpr auto DIST_LEGS_MAX_DEFAULT = 0.30;
+	static constexpr double DIST_LEGS_MAX_DEFAULT = 0.30;
+	static constexpr char* GAZEBO_FRAME_ID_DEFAULT = "world";
 	ros::NodeHandle nh_;
+
+	tf2_ros::Buffer tf_buffer_;
+	tf2_ros::TransformListener tf_listener_;
+	std::mutex mutex_;
 
 	ros::Subscriber sub_obstacle_;
 	ros::Subscriber sub_gazebo_;
@@ -63,6 +75,7 @@ private:
 
 	std::vector<Person> people_data_;
 	double dist_legs_max_;
+	std::string gazebo_tf_frame_;
 };
 
 #endif /* SRC_LEGSEXTRACTION_HPP_ */

@@ -11,9 +11,12 @@
 
 bool sortbysec(const std::tuple<unsigned int, double>& a, const std::tuple<unsigned int, double>& b);
 constexpr double LegsExtraction::DIST_LEGS_MAX_DEFAULT;
+constexpr char* LegsExtraction::GAZEBO_FRAME_ID_DEFAULT;
 
 LegsExtraction::LegsExtraction():
-	dist_legs_max_(LegsExtraction::DIST_LEGS_MAX_DEFAULT)
+	tf_listener_(tf_buffer_),
+	dist_legs_max_(LegsExtraction::DIST_LEGS_MAX_DEFAULT),
+	gazebo_tf_frame_(LegsExtraction::GAZEBO_FRAME_ID_DEFAULT)
 {
 	std::string obstacle_topic("");
 	std::string obstacle_no_people_topic("");
@@ -24,6 +27,7 @@ LegsExtraction::LegsExtraction():
 	nh_.param<std::string>("legs_extraction/people_pos_topic", people_pos_topic, "/people_tracker_measurements");
 	nh_.getParam("legs_extraction/model_names", people_names);
 	nh_.param<double>("legs_extraction/dist_legs_max", dist_legs_max_, LegsExtraction::DIST_LEGS_MAX_DEFAULT);
+	nh_.param<std::string>("legs_extraction/gazebo_tf_frame", gazebo_tf_frame_, std::string(LegsExtraction::GAZEBO_FRAME_ID_DEFAULT));
 
 	sub_gazebo_ = nh_.subscribe<gazebo_msgs::ModelStates>("/gazebo/model_states",  1, &LegsExtraction::gazeboModelStateCallback, this);;
 	sub_obstacle_ = nh_.subscribe<obstacle_detector::Obstacles>(obstacle_topic,  3, &LegsExtraction::obstacleDetectorCallback, this);;
@@ -46,14 +50,22 @@ void LegsExtraction::gazeboModelStateCallback(const gazebo_msgs::ModelStates::Co
 			int index = it - msg->name.begin();
 			// retrieve meaningful data from corresponding vectors
 			if (index >= 0) {
-				people_data_.at(i).pose = msg->pose.at(index);
-				people_data_.at(i).vel = msg->twist.at(index);
+				people_data_.at(i).pose.pose = msg->pose.at(index);
+				people_data_.at(i).pose.header.frame_id = gazebo_tf_frame_;
+				people_data_.at(i).pose.header.seq =+ 1;
+				people_data_.at(i).pose.header.stamp = ros::Time::now();
+
+				people_data_.at(i).vel.twist = msg->twist.at(index);
+				people_data_.at(i).vel.header = people_data_.at(i).pose.header;
 			}
 		}
 	}
 }
 
 void LegsExtraction::obstacleDetectorCallback(const obstacle_detector::ObstaclesConstPtr &msg) {
+	// due to different frequencies of callback triggers and `people_data_` modification
+	std::lock_guard<std::mutex> lock(mutex_);
+
 	obstacle_detector::Obstacles obstacles_filtered;
 	obstacles_filtered.header = msg->header;
 	obstacles_filtered.segments = msg->segments;
@@ -67,6 +79,16 @@ void LegsExtraction::obstacleDetectorCallback(const obstacle_detector::Obstacles
 		people_circles.push_back(PersonAsCircleObstacle());
 	}
 
+	// transform poses that coming from a simulation
+	for (unsigned int i = 0; i < people_data_.size(); i++) {
+		try {
+			tf_buffer_.transform(people_data_.at(i).pose, msg->header.frame_id, ros::Duration(1.0));
+		} catch (tf2::TransformException &e) {
+			ROS_WARN("exception: %s  -  person %d: could not find TF from %s to %s",
+				e.what(), i, gazebo_tf_frame_.c_str(), msg->header.frame_id.c_str());
+		}
+	}
+
 	// store indexes of circles that were already associated with legs
 	std::vector<unsigned int> circles_associated;
 
@@ -74,12 +96,12 @@ void LegsExtraction::obstacleDetectorCallback(const obstacle_detector::Obstacles
 	for (unsigned int i = 0; i < people_data_.size(); i++) {
 		for (unsigned int j = 0; j < msg->circles.size(); j++) {
 			double distance = 0.0;
-			if ((distance = computeDistance(msg->circles.at(j).center, people_data_.at(i).pose.position)) <= dist_legs_max_) {
+			if ((distance = computeDistance(msg->circles.at(j).center, people_data_.at(i).pose.pose.position)) <= dist_legs_max_) {
 				people_circles.at(i).circles.push_back(msg->circles.at(j));
 				circles_associated.push_back(j);
 			}
 			printf("person %d - circle %d\tdistance %2.3f / person: x=%2.3f, y=%2.3f \t| circle: x=%2.3f, y=%2.3f\t",
-				i, j, distance, people_data_.at(i).pose.position.x, people_data_.at(i).pose.position.y,
+				i, j, distance, people_data_.at(i).pose.pose.position.x, people_data_.at(i).pose.pose.position.y,
 				msg->circles.at(j).center.x, msg->circles.at(j).center.y);
 			if (distance <= dist_legs_max_) {
 				printf("1");
@@ -106,7 +128,7 @@ void LegsExtraction::obstacleDetectorCallback(const obstacle_detector::Obstacles
 				std::tuple<unsigned int, double> tup;
 				std::get<0>(tup) = j;
 				std::get<1>(tup) =
-					computeDistance(people_circles.at(i).circles.at(j).center, people_data_.at(i).pose.position);
+					computeDistance(people_circles.at(i).circles.at(j).center, people_data_.at(i).pose.pose.position);
 				dists.push_back(tup);
 			}
 
@@ -141,8 +163,15 @@ void LegsExtraction::obstacleDetectorCallback(const obstacle_detector::Obstacles
 	printf("bilans start: %d | end: %d\t(ppl: %d, obs: %d)\r\n",
 		debug_quantity_start, debug_quantity_end, ppl_cir, obs_cir);
 
-	people_msgs::PositionMeasurementArray people_pos;
-	// TODO
+	people_msgs::PositionMeasurementArray people_pos_array;
+	for (unsigned int i = 0; i < people_circles.size(); i++) {
+		people_msgs::PositionMeasurement person_pos;
+		double reliability = 1.0;
+		person_pos.reliability = reliability;
+		person_pos.covariance[0] = std::pow(0.3 / reliability, 2.0);
+		person_pos.covariance[4] = std::pow(0.3 / reliability, 2.0);
+		person_pos.covariance[8] = 1000;
+	}
 
 	// prepare `legs` for publishing
 	pub_people_.publish(people_msgs::PositionMeasurementArray());
