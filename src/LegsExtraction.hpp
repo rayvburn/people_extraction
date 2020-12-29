@@ -34,6 +34,7 @@ private:
 	struct PersonAsCircleObstacle {
 		/// index in the `people_data_` vector
 		unsigned int person_id;
+		std::vector<unsigned int> circle_ids;
 		std::vector<obstacle_detector::CircleObstacle> circles;
 	};
 

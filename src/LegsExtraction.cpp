@@ -96,8 +96,12 @@ void LegsExtraction::obstacleDetectorCallback(const obstacle_detector::Obstacles
 	for (unsigned int i = 0; i < people_data_.size(); i++) {
 		for (unsigned int j = 0; j < msg->circles.size(); j++) {
 			double distance = 0.0;
-			if ((distance = computeDistance(msg->circles.at(j).center, people_data_.at(i).pose.pose.position)) <= dist_legs_max_) {
+			if ((distance = computeDistance(msg->circles.at(j).center, people_data_.at(i).pose.pose.position))
+				<= dist_legs_max_
+			) {
 				people_circles.at(i).circles.push_back(msg->circles.at(j));
+				people_circles.at(i).person_id = i;
+				people_circles.at(i).circle_ids.push_back(j);
 				circles_associated.push_back(j);
 			}
 			printf("person %d - circle %d\tdistance %2.3f / person: x=%2.3f, y=%2.3f \t| circle: x=%2.3f, y=%2.3f\t",
@@ -162,6 +166,11 @@ void LegsExtraction::obstacleDetectorCallback(const obstacle_detector::Obstacles
 	unsigned int debug_quantity_end = ppl_cir + obs_cir;
 	printf("bilans start: %d | end: %d\t(ppl: %d, obs: %d)\r\n",
 		debug_quantity_start, debug_quantity_end, ppl_cir, obs_cir);
+
+	// circles / person
+	for (unsigned int i = 0; i < people_circles.size(); i++) {
+		printf("person %d - circles %d\r\n", i, people_circles.at(i).circles.size());
+	}
 
 	people_msgs::PositionMeasurementArray people_pos_array;
 	for (unsigned int i = 0; i < people_circles.size(); i++) {
