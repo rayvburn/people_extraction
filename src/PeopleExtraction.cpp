@@ -10,6 +10,8 @@
 constexpr char* PeopleExtraction::GAZEBO_FRAME_ID_DEFAULT;
 constexpr char* PeopleExtraction::TARGET_FRAME_ID_DEFAULT;
 
+#define DEBUG_TF
+
 PeopleExtraction::PeopleExtraction() :
 	tf_listener_(tf_buffer_),
 	id_next_(0),
@@ -91,17 +93,42 @@ void PeopleExtraction::gazeboModelStateCallback(const gazebo_msgs::ModelStates::
 				person.vel.twist.angular = msg->twist.at(index).angular;
 				// try to transform to another coordinate system
 				try {
-					tf_buffer_.transform(person.pose, target_tf_frame_, ros::Duration(1.0));
-					/*
-					 * https://answers.ros.org/question/192273/how-to-implement-velocity-transformation/
-					auto tf_stamped = tf_buffer_.lookupTransform(target_tf_frame_, gazebo_tf_frame_, ros::Time::now());
-					tf_buffer_.transformtf_stamped.
-					tf_buffer_.transform(person.pose, target_tf_frame_, ros::Duration(1.0));
-					 */
-					// TODO: rotate twist
-					// ...
+					geometry_msgs::TransformStamped transform = tf_buffer_.lookupTransform(
+						target_tf_frame_,
+						gazebo_tf_frame_,
+						ros::Time::now(),
+						ros::Duration(1.0)
+					);
+					// transform pose
+					geometry_msgs::PoseStamped pose_backup = person.pose;
+					tf2::doTransform(person.pose, person.pose, transform);
+					#ifdef DEBUG_TF
+					printf("[transform pose (1)] before - position: %2.5f, %2.5f, %2.5f, orientation: %2.5f, %2.5f, %2.5f\r\n",
+						pose_backup.pose.position.x,
+						pose_backup.pose.position.y,
+						pose_backup.pose.position.z,
+						pose_backup.pose.orientation.x,
+						pose_backup.pose.orientation.y,
+						pose_backup.pose.orientation.z
+					);
+					printf("[transform pose (2)] after  - position: %2.5f, %2.5f, %2.5f, orientation: %2.5f, %2.5f, %2.5f\r\n",
+						person.pose.pose.position.x,
+						person.pose.pose.position.y,
+						person.pose.pose.position.z,
+						person.pose.pose.orientation.x,
+						person.pose.pose.orientation.y,
+						person.pose.pose.orientation.z
+					);
+					#endif
+					// rotate velocity (in the local coordinate system)
+					rotateTwist(person.vel, transform);
+					// update header frame
 					person.pose.header.frame_id = target_tf_frame_;
-					std::cout << "assuming successful transformation - changed frame_id to TARGET: " << person.pose.header.frame_id << std::endl;
+					person.vel.header.frame_id = target_tf_frame_;
+					#ifdef DEBUG_TF
+					printf("Assuming successful transformation - changed frame_id to TARGET: %s\r\n",
+						person.pose.header.frame_id.c_str());
+					#endif
 				} catch (tf2::TransformException &e) {
 					ROS_WARN("exception: %s\r\nPerson %s: could not find TF from %s to %s",
 						e.what(), msg->name.at(index).c_str(), gazebo_tf_frame_.c_str(), target_tf_frame_.c_str());
@@ -154,6 +181,65 @@ void PeopleExtraction::deleteDestroyedPerson(const std::vector<std::string> &mod
 		people_data_.erase(i);
 	}
 	ROS_INFO("Deleted %d object(s)", num_deleted);
+}
+
+void PeopleExtraction::rotateTwist(geometry_msgs::TwistStamped &vel, const geometry_msgs::TransformStamped &transform) {
+	// local coordinate system - consider rotation only
+	geometry_msgs::TransformStamped transform_local = transform;
+	transform_local.transform.translation.x = 0.0;
+	transform_local.transform.translation.y = 0.0;
+	transform_local.transform.translation.z = 0.0;
+
+	// use msg type supported by tf2::doTransform
+	// http://docs.ros.org/en/kinetic/api/tf2_geometry_msgs/html/c++/namespacetf2.html#a82ca47c6f5b0360e6c5b250dca719a78
+	geometry_msgs::Vector3Stamped vel_v3;
+	vel_v3.header = vel.header;
+	vel_v3.vector.x = vel.twist.linear.x;
+	vel_v3.vector.y = vel.twist.linear.y;
+	vel_v3.vector.z = vel.twist.linear.z;
+	#ifdef DEBUG_TF
+	printf("[rotateTwist (1)] transform - raw tr: %2.3f, %2.3f, %2.3f | modded tr: %2.3f, %2.3f, %2.3f | rot: %2.3f, %2.3f, %2.3f\r\n",
+		transform.transform.translation.x,
+		transform.transform.translation.y,
+		transform.transform.translation.z,
+		transform_local.transform.translation.x,
+		transform_local.transform.translation.y,
+		transform_local.transform.translation.z,
+		transform_local.transform.rotation.x,
+		transform_local.transform.rotation.y,
+		transform_local.transform.rotation.z,
+		transform_local.transform.rotation.w
+	);
+
+	tf2::Quaternion q_rot;
+	tf2::convert(transform_local.transform.rotation, q_rot);
+	tf2::Matrix3x3 mat(q_rot);
+	double roll, pitch, yaw;
+	mat.getRPY(roll, pitch, yaw);
+	printf("[rotateTwist (2)] transform - rot RPY: %2.3f, %2.3f, %2.3f\r\n", roll, pitch, yaw);
+	#endif
+
+	geometry_msgs::Vector3Stamped vel_v3_modified;
+	tf2::doTransform(vel_v3, vel_v3_modified, transform_local);
+	#ifdef DEBUG_TF
+	printf("[rotateTwist (3)] vel_before: %2.3f, %2.3f, %2.3f | vel_after: %2.3f, %2.3f, %2.3f\r\n",
+		vel_v3.vector.x,
+		vel_v3.vector.y,
+		vel_v3.vector.z,
+		vel_v3_modified.vector.x,
+		vel_v3_modified.vector.y,
+		vel_v3_modified.vector.z
+	);
+	#endif
+
+	// copy meaningful values to the twist msg
+	vel.twist.linear.x = vel_v3_modified.vector.x;
+	vel.twist.linear.y = vel_v3_modified.vector.y;
+	vel.twist.linear.z = vel_v3_modified.vector.z;
+	// just to be on the safe side
+	vel.twist.angular.x = 0.0;
+	vel.twist.angular.y = 0.0;
+	vel.twist.angular.z = 0.0;
 }
 
 void PeopleExtraction::publishPeople() {

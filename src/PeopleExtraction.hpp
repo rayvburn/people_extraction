@@ -57,6 +57,13 @@ private:
 	 */
 	void deleteDestroyedPerson(const std::vector<std::string> &model_names);
 
+	/**
+	 * @brief Executes rotation of the `vel` vector according to the given `transform`
+	 * @param vel: modified - rotated vector
+	 * @param transform
+	 */
+	void rotateTwist(geometry_msgs::TwistStamped &vel, const geometry_msgs::TransformStamped &transform);
+
 	void publishPeople();
 	void publishPeoplePositions();
 
