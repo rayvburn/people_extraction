@@ -1,2 +1,2 @@
-# actor_legs_extraction
-ROS package that searches for `actor` model (Gazebo plugin) and associates its pose with detected obstacles
+# people_extraction
+ROS package that searches for certain model names at `/gazebo/model_states` topic and republishes gathered data as [`people_msgs/People.msg`](http://docs.ros.org/en/api/people_msgs/html/msg/People.html) and [`people_msgs/PositionMeasurementArray.msg`](http://docs.ros.org/en/api/people_msgs/html/msg/PositionMeasurementArray.html) to ROS topics with a given names.

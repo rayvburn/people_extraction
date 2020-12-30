@@ -1,3 +1,4 @@
+src/actor_legs_extraction_node.cpp
 src/LegsExtraction.*
 launch/actor_legs_extraction.launch
 config/legs.yaml

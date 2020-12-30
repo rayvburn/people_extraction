@@ -1,7 +1,7 @@
 <package format="2">
-	<name>actor_legs_extraction</name>
+	<name>people_extraction</name>
 	<version>1.0.0</version>
-	<description>actor_legs_extraction package</description>
+	<description>people_extraction package</description>
 	
 	<maintainer email="j.karwowski@stud.elka.pw.edu.pl">Jaroslaw Karwowski</maintainer>
 	
@@ -10,7 +10,6 @@
 	<buildtool_depend>catkin</buildtool_depend>
 	<depend>roscpp</depend>
 	<depend>gazebo_ros</depend>
-	<depend>obstacle_detector</depend>
 	<depend>people_msgs</depend>
     
 </package>

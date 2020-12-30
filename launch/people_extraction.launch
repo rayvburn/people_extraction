@@ -1,4 +1,4 @@
 <launch>
-  <rosparam file="$(find actor_legs_extraction)/config/people.yaml" command="load" ns="people_extraction" />
-  <node name="people_extraction" pkg="actor_legs_extraction" type="people_extraction_node" output="screen" ns="people_extraction"/>
+  <rosparam file="$(find people_extraction)/config/people.yaml" command="load" ns="people_extraction" />
+  <node name="people_extraction" pkg="people_extraction" type="people_extraction_node" output="screen" ns="people_extraction"/>
 </launch>
