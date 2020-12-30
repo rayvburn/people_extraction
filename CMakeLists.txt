@@ -25,10 +25,22 @@ add_library(${PROJECT_NAME}
 	src/LegsExtraction.hpp 
 	src/LegsExtraction.cpp
 )
+
+add_library(people_extraction 
+	src/PeopleExtraction.hpp 
+	src/PeopleExtraction.cpp
+)
+
 add_dependencies(${PROJECT_NAME} 
 	${catkin_EXPORTED_TARGETS}
 )
 target_link_libraries(${PROJECT_NAME} 
+	${catkin_LIBRARIES} 
+	${GAZEBO_LIBRARIES} 
+	${roscpp_LIBRARIES}
+)
+
+target_link_libraries(people_extraction
 	${catkin_LIBRARIES} 
 	${GAZEBO_LIBRARIES} 
 	${roscpp_LIBRARIES}
@@ -40,3 +52,8 @@ target_link_libraries(actor_legs_extraction_node
 	${catkin_LIBRARIES}
 )
 
+add_executable(people_extraction_node src/people_extraction_node.cpp)
+target_link_libraries(people_extraction_node 
+	people_extraction
+	${catkin_LIBRARIES}
+)

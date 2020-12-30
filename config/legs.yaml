@@ -1,7 +1,0 @@
-legs_extraction:
-  gazebo_tf_frame: "world"
-  obstacle_topic: "/obstacles"
-  obstacle_no_people_topic: "/obstacles_filtered"
-  people_pos_topic: "/people_tracker_measurements"
-  dist_legs_max: 0.50
-  model_names: ["person_walking", "person_standing", "person_standing_0", "person_standing_1"]
