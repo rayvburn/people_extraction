@@ -1,6 +1,6 @@
-gazebo_tf_frame: "world"
+gazebo_frame: "world"
 target_frame: "map"
-callback_omits: 100 # each n-th simulator callback will be processed
+callback_omits: 25 # each n-th simulator callback will be processed
 
 people_topic: "/people"
 position_topic: "/people_measurements"

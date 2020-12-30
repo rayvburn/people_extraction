@@ -49,12 +49,19 @@ private:
 	 * @param pattern
 	 * @return
 	 */
-	std::vector<std::string> findModels(const std::vector<std::string> model_names, std::string pattern) const;
+	std::vector<std::string> findModels(const std::vector<std::string> &model_names, std::string pattern) const;
+
+	/**
+	 * @brief Get rid of the unnecessary model
+	 * @param model_names
+	 */
+	void deleteDestroyedPerson(const std::vector<std::string> &model_names);
 
 	void publishPeople();
 	void publishPeoplePositions();
 
 	static constexpr char* GAZEBO_FRAME_ID_DEFAULT = "world";
+	static constexpr char* TARGET_FRAME_ID_DEFAULT = "map";
 	ros::NodeHandle nh_;
 
 	tf2_ros::Buffer tf_buffer_;
@@ -73,6 +80,7 @@ private:
 
 	int id_next_;
 	std::string gazebo_tf_frame_;
+	std::string target_tf_frame_;
 	int callback_counter_;
 	int callback_omits_;
 	unsigned long int seq_;
