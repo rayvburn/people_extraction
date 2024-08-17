@@ -3,7 +3,8 @@
 	<version>1.0.0</version>
 	<description>people_extraction package</description>
 	
-	<maintainer email="j.karwowski@stud.elka.pw.edu.pl">Jaroslaw Karwowski</maintainer>
+	<author email="chromedivizer@gmail.com">Jarosław Karwowski</author>
+	<maintainer email="chromedivizer@gmail.com">Jarosław Karwowski</maintainer>
 	
 	<license>GPLv3</license>
 	
