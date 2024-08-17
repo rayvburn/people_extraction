@@ -1,4 +1,6 @@
 <launch>
-  <rosparam file="$(find people_extraction)/config/people.yaml" command="load" ns="people_extraction" />
+  <arg name="config_file" default="$(find people_extraction)/config/people.yaml"/>
+
+  <rosparam file="$(arg config_file)" command="load" ns="people_extraction" />
   <node name="people_extraction" pkg="people_extraction" type="people_extraction_node" output="screen" ns="people_extraction"/>
 </launch>
