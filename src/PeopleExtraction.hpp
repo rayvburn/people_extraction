@@ -5,8 +5,7 @@
  *      Author: rayvburn
  */
 
-#ifndef SRC_PEOPLEEXTRACTION_HPP_
-#define SRC_PEOPLEEXTRACTION_HPP_
+#pragma once
 
 #include <ros/ros.h>
 #include <people_msgs/People.h>
@@ -96,5 +95,3 @@ private:
 	// filtering detected obstacles - republishing ones indicating not-legs
 	friend class LegsExtraction;
 };
-
-#endif /* SRC_PEOPLEEXTRACTION_HPP_ */
