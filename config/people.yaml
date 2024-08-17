@@ -1,6 +1,7 @@
 model_name_patterns: [
-  "person",
   "actor",
+]
+link_name_patterns: [
   "Scrubs",
   "PatientWheelChair",
   "MaleVisitorSit",

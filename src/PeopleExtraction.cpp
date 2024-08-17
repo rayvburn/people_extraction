@@ -20,9 +20,15 @@ PeopleExtraction::PeopleExtraction():
 	nh_.param<std::string>("target_frame", target_tf_frame_, "odom");
 
 	// model name check
-	nh_.getParam("model_name_patterns", people_name_patterns_);
-	if (!people_name_patterns_.size()) {
+	nh_.getParam("model_name_patterns", model_name_patterns_);
+	if (!model_name_patterns_.size()) {
 		ROS_ERROR("PeopleExtraction - model_name_patterns is empty! Class would be ill-formed");
+		return;
+	}
+	// link names check
+	nh_.getParam("link_name_patterns", link_name_patterns_);
+	if (!link_name_patterns_.size()) {
+		ROS_ERROR("PeopleExtraction - link_name_patterns is empty! Class would be ill-formed");
 		return;
 	}
 
@@ -38,10 +44,17 @@ PeopleExtraction::PeopleExtraction():
 	// create ROS interfaces
 	pub_people_ = nh_.advertise<people_msgs::People>("/people", 5);
 	pub_pos_ = nh_.advertise<people_msgs::PositionMeasurementArray>("/people_measurements", 5);
-	sub_gazebo_ = nh_.subscribe<gazebo_msgs::ModelStates>(
+	sub_model_states_ = nh_.subscribe<gazebo_msgs::ModelStates>(
 		"/gazebo/model_states",
 		1,
 		&PeopleExtraction::gazeboModelStateCallback,
+		this
+	);
+
+	sub_link_states_ = nh_.subscribe<gazebo_msgs::LinkStates>(
+		"/gazebo/link_states",
+		1,
+		&PeopleExtraction::gazeboLinkStateCallback,
 		this
 	);
 
@@ -59,7 +72,7 @@ void PeopleExtraction::gazeboModelStateCallback(const gazebo_msgs::ModelStates::
 		ROS_ERROR("Vector sizes in the input message are not equal, cannot process further");
 		return;
 	}
-	std::lock_guard<std::mutex> lock(mutex_);
+	std::lock_guard<std::mutex> lock(mutex_ms_);
 
 	// update internal database dynamically
 	size_t models_found = 0;
@@ -70,7 +83,7 @@ void PeopleExtraction::gazeboModelStateCallback(const gazebo_msgs::ModelStates::
 		// check whether a model with a given name is of our interest (according to the naming patterns)
 		bool pattern_matched = false;
 		std::string pattern;
-		std::tie(pattern_matched, pattern) = isMatching(name, people_name_patterns_);
+		std::tie(pattern_matched, pattern) = isMatching(name, model_name_patterns_);
 		if (!pattern_matched) {
 			continue;
 		}
@@ -82,36 +95,81 @@ void PeopleExtraction::gazeboModelStateCallback(const gazebo_msgs::ModelStates::
 		model.twist = msg->twist.at(i);
 
 		// check whether the person already exists in the internal database (only need ModelState update then)
-		if (doesPersonExist(name)) {
-			people_gazebo_[name].second = model;
+		if (doesPersonExist(people_models_, name)) {
+			people_models_[name].second = model;
 			continue;
 		}
 		// new model - assign an ID and update its ModelState
-		people_gazebo_[name] = {people_gazebo_.size(), model};
+		people_models_[name] = {people_models_.size(), model};
 		ROS_INFO(
-			"Tracking a new person '%s' (ID: '%lu'), detected from naming pattern: '%s'",
-			people_gazebo_[name].second.model_name.c_str(),
-			people_gazebo_[name].first,
+			"Tracking a new person '%s' (ID: '%lu'), detected from naming pattern: '%s' (models)",
+			people_models_[name].second.model_name.c_str(),
+			people_models_[name].first,
 			pattern.c_str()
 		);
 	}
 
 	// possibly delete renamed/destroyed objects
-	if (models_found < people_gazebo_.size()) {
-		ROS_INFO(
-			"Seems that an object was deleted. Number of matching model names found: %lu, size of database: %lu",
-			models_found,
-			people_gazebo_.size()
-		);
-		deleteDestroyedPerson(msg->name);
+	deleteDestroyedPerson(people_models_, msg->name);
+}
+
+void PeopleExtraction::gazeboLinkStateCallback(const gazebo_msgs::LinkStates::ConstPtr& msg) {
+	if (msg->name.size() != msg->pose.size() || msg->name.size() != msg->twist.size()) {
+		ROS_ERROR("Vector sizes in the input message are not equal, cannot process further");
+		return;
 	}
+	std::lock_guard<std::mutex> lock(mutex_ls_);
+
+	// update internal database dynamically
+	size_t links_found = 0;
+	size_t links_total = msg->name.size();
+	for (size_t i = 0; i < links_total; i++) {
+		// investigated object - obtain only the name at this stage
+		const auto& name = msg->name.at(i);
+		// check whether a model with a given name is of our interest (according to the naming patterns)
+		bool pattern_matched = false;
+		std::string pattern;
+		std::tie(pattern_matched, pattern) = isMatching(name, link_name_patterns_);
+		if (!pattern_matched) {
+			continue;
+		}
+
+		links_found++;
+		gazebo_msgs::ModelState model;
+		model.model_name = name;
+		model.pose = msg->pose.at(i);
+		model.twist = msg->twist.at(i);
+
+		// check whether the person already exists in the internal database (only need ModelState update then)
+		if (doesPersonExist(people_links_, name)) {
+			people_links_[name].second = model;
+			continue;
+		}
+		// new model - assign an ID and update its ModelState
+		people_links_[name] = {people_links_.size(), model};
+		ROS_INFO(
+			"Tracking a new person '%s' (ID: '%lu'), detected from naming pattern: '%s' (links)",
+			people_links_[name].second.model_name.c_str(),
+			people_links_[name].first,
+			pattern.c_str()
+		);
+	}
+
+	// possibly delete renamed/destroyed objects
+	deleteDestroyedPerson(people_links_, msg->name);
 }
 
-bool PeopleExtraction::doesPersonExist(const std::string& name) const {
-	return people_gazebo_.find(name) != people_gazebo_.cend();
+bool PeopleExtraction::doesPersonExist(
+	const std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>>& people,
+	const std::string& name
+) const {
+	return people.find(name) != people.cend();
 }
 
-std::tuple<bool, std::string> PeopleExtraction::isMatching(const std::string& model_name, std::vector<std::string>& patterns) const {
+std::tuple<bool, std::string> PeopleExtraction::isMatching(
+	const std::string& model_name,
+	std::vector<std::string>& patterns
+) const {
 	for (const auto& pattern: patterns) {
 		// try to find
 		if (model_name.find(pattern) == std::string::npos) {
@@ -122,10 +180,13 @@ std::tuple<bool, std::string> PeopleExtraction::isMatching(const std::string& mo
 	return {false, std::string()};
 }
 
-void PeopleExtraction::deleteDestroyedPerson(const std::vector<std::string>& model_names) {
-	auto i = std::begin(people_gazebo_);
+void PeopleExtraction::deleteDestroyedPerson(
+	std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>>& people,
+	const std::vector<std::string>& model_names
+) const {
+	auto i = std::begin(people);
 	// while is safer than for here
-	while (i != std::end(people_gazebo_)) {
+	while (i != std::end(people)) {
 		// map and nested pair
 		auto model_name = i->second.second.model_name;
 		auto it = std::find(model_names.begin(), model_names.end(), model_name);
@@ -137,11 +198,13 @@ void PeopleExtraction::deleteDestroyedPerson(const std::vector<std::string>& mod
 		// delete current element
 		ROS_INFO("Deleting '%s' from database", model_name.c_str());
 		// erase from map; ref: https://stackoverflow.com/a/2874533
-		i = people_gazebo_.erase(i);
+		i = people.erase(i);
 	}
 }
 
-people_msgs_utils::People PeopleExtraction::gazeboModelsToPeople() const {
+people_msgs_utils::People PeopleExtraction::gazeboModelsToPeople(
+	const std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>>& people_models
+) const {
 	// transform localization data to the desired frame
 	geometry_msgs::TransformStamped tf_stamped;
 	// by default - lack of translation and rotation
@@ -169,7 +232,7 @@ people_msgs_utils::People PeopleExtraction::gazeboModelsToPeople() const {
 	// prepare output container
 	people_msgs_utils::People people;
 
-	for (auto const& model_data: people_gazebo_) {
+	for (auto const& model_data: people_models) {
 		// retrieve from the value (key is not considered here)
 		auto id = model_data.second.first;
 		auto model = model_data.second.second;
@@ -216,15 +279,24 @@ people_msgs_utils::People PeopleExtraction::gazeboModelsToPeople() const {
 }
 
 void PeopleExtraction::publish() {
-	std::lock_guard<std::mutex> lock(mutex_);
+	std::lock_guard<std::mutex> lock_ms(mutex_ms_);
+	std::lock_guard<std::mutex> lock_ls(mutex_ls_);
+
+	// combine entities obtained from "models" and from "links"
+	std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>> people_gazebo;
+	// start with copying 1st and extend with the 2nd container
+	people_gazebo = people_models_;
+	for (auto const& [key, val]: people_links_) {
+		people_gazebo[key] = val;
+	}
 
 	// check if there is something to publish
-	if (people_gazebo_.empty()) {
+	if (people_gazebo.empty()) {
 		return;
 	}
 
 	// Gazebo models to people representation
-	auto people = gazeboModelsToPeople();
+	auto people = gazeboModelsToPeople(people_gazebo);
 
 	publishPeople(people);
 	publishPeoplePositions(people);
