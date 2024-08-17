@@ -195,7 +195,7 @@ void PeopleExtraction::rotateTwist(geometry_msgs::TwistStamped &vel, const geome
 	vel_v3.vector.y = vel.twist.linear.y;
 	vel_v3.vector.z = vel.twist.linear.z;
 	#ifdef DEBUG_TF
-	printf("[rotateTwist (1)] transform - raw tr: %2.3f, %2.3f, %2.3f | modded tr: %2.3f, %2.3f, %2.3f | rot: %2.3f, %2.3f, %2.3f\r\n",
+	printf("[rotateTwist (1)] transform - raw tr: %2.3f, %2.3f, %2.3f | modded tr: %2.3f, %2.3f, %2.3f | rot: %2.3f, %2.3f, %2.3f, %2.3f\r\n",
 		transform.transform.translation.x,
 		transform.transform.translation.y,
 		transform.transform.translation.z,
