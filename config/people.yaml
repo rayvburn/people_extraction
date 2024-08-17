@@ -1,8 +1,9 @@
-gazebo_frame: "world"
-target_frame: "map"
-callback_omits: 25 # each n-th simulator callback will be processed
-
-people_topic: "/people"
-position_topic: "/people_measurements"
-
-model_name_patterns: ["person", "actor"]
+model_name_patterns: [
+  "person",
+  "actor",
+  "Scrubs",
+  "PatientWheelChair",
+  "MaleVisitorSit",
+  "VisitorKidSit",
+  "FemaleVisitorSit"
+]

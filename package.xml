@@ -12,5 +12,6 @@
 	<depend>roscpp</depend>
 	<depend>gazebo_ros</depend>
 	<depend>people_msgs</depend>
+	<depend>people_msgs_utils</depend>
     
 </package>

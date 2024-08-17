@@ -1,10 +1,11 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.5)
 project(people_extraction)
 
 find_package(catkin REQUIRED COMPONENTS
   gazebo_ros
   roscpp
   people_msgs
+  people_msgs_utils
 )
 
 catkin_package(
@@ -12,6 +13,7 @@ catkin_package(
 	gazebo_ros
 	roscpp 
     people_msgs
+	people_msgs_utils
 )
 
 set(CMAKE_CXX_FLAGS   "-Wall -Wpedantic --std=c++17")
