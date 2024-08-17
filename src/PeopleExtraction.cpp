@@ -43,7 +43,7 @@ void PeopleExtraction::gazeboModelStateCallback(const gazebo_msgs::ModelStates::
 	callback_counter_ = 0;
 
 	// update internal database dynamically
-	int models_found = 0;
+	size_t models_found = 0;
 	for (auto pattern : people_name_patterns_) {
 		// evaluate, whether the object named with a given pattern exists in a simulation
 		std::vector<std::string> sim_names = findModels(msg->name, pattern);
@@ -62,7 +62,7 @@ void PeopleExtraction::gazeboModelStateCallback(const gazebo_msgs::ModelStates::
 	}
 	// possibly delete renamed/destroyed objects
 	if (models_found < people_data_.size()) {
-		ROS_INFO("Seems that an object was deleted. Number of matching model names found: %d, size of database: %d",
+		ROS_INFO("Seems that an object was deleted. Number of matching model names found: %lu, size of database: %lu",
 			models_found, people_data_.size());
 		deleteDestroyedPerson(msg->name);
 	}
