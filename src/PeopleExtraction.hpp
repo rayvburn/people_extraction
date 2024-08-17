@@ -23,6 +23,9 @@
 
 class PeopleExtraction {
 public:
+	static constexpr auto GAZEBO_FRAME_ID_DEFAULT = "world";
+	static constexpr auto TARGET_FRAME_ID_DEFAULT = "map";
+
 	PeopleExtraction();
 	virtual ~PeopleExtraction() = default;
 
@@ -66,8 +69,6 @@ private:
 	void publishPeople();
 	void publishPeoplePositions();
 
-	static constexpr char* GAZEBO_FRAME_ID_DEFAULT = "world";
-	static constexpr char* TARGET_FRAME_ID_DEFAULT = "map";
 	ros::NodeHandle nh_;
 
 	tf2_ros::Buffer tf_buffer_;

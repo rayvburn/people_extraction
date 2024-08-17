@@ -7,9 +7,6 @@
 
 #include "PeopleExtraction.hpp"
 
-constexpr char* PeopleExtraction::GAZEBO_FRAME_ID_DEFAULT;
-constexpr char* PeopleExtraction::TARGET_FRAME_ID_DEFAULT;
-
 #define DEBUG_TF
 
 PeopleExtraction::PeopleExtraction() :
