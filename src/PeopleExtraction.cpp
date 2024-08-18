@@ -20,6 +20,14 @@ PeopleExtraction::PeopleExtraction():
 	auto pub_frequency = nh_.param<double>("pub_frequency", 30.0);
 	nh_.param<std::string>("world_frame", world_tf_frame_, "world");
 	nh_.param<std::string>("target_frame", target_tf_frame_, "odom");
+	auto comp_filter_factor = nh_.param<double>(
+		"velocity_filtering_factor",
+		GazeboModelExtractor::COMPLEMENTARY_FILTER_INNOVATION_DEFAULT
+	);
+	auto gazebo_update_period = nh_.param<double>(
+		"gazebo_cb_update_period",
+		GazeboModelExtractor::GAZEBO_CB_DIFF_TIME
+	);
 
 	// publishing frequency check
 	if (pub_frequency <= 0.0) {
@@ -68,7 +76,9 @@ PeopleExtraction::PeopleExtraction():
 			"/gazebo/model_states",
 			model_name_patterns,
 			models_transforms,
-			id_ref_
+			id_ref_,
+			comp_filter_factor,
+			gazebo_update_period
 		);
 	}
 
@@ -81,7 +91,9 @@ PeopleExtraction::PeopleExtraction():
 			"/gazebo/link_states",
 			link_name_patterns,
 			links_transforms,
-			id_ref_
+			id_ref_,
+			comp_filter_factor,
+			gazebo_update_period
 		);
 	}
 

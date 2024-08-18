@@ -6,6 +6,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   people_msgs
   people_msgs_utils
+  angles
 )
 
 catkin_package(
@@ -14,6 +15,7 @@ catkin_package(
 	roscpp 
     people_msgs
 	people_msgs_utils
+	angles
 )
 
 set(CMAKE_CXX_FLAGS   "-Wall -Wpedantic --std=c++17")
