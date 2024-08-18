@@ -13,21 +13,23 @@
 #include <thread>
 
 PeopleExtraction::PeopleExtraction():
+	id_ref_(0),
 	tf_listener_(tf_buffer_)
 {
 	auto pub_frequency = nh_.param<double>("pub_frequency", 30.0);
 	nh_.param<std::string>("world_frame", world_tf_frame_, "world");
 	nh_.param<std::string>("target_frame", target_tf_frame_, "odom");
 
-	// model name check
-	nh_.getParam("model_name_patterns", model_name_patterns_);
-	if (!model_name_patterns_.size()) {
+	// obtain model and link name patterns
+	std::vector<std::string> model_name_patterns;
+	nh_.getParam("model_name_patterns", model_name_patterns);
+	if (!model_name_patterns.size()) {
 		ROS_ERROR("PeopleExtraction - model_name_patterns is empty! Class would be ill-formed");
 		return;
 	}
-	// link names check
-	nh_.getParam("link_name_patterns", link_name_patterns_);
-	if (!link_name_patterns_.size()) {
+	std::vector<std::string> link_name_patterns;
+	nh_.getParam("link_name_patterns", link_name_patterns);
+	if (!link_name_patterns.size()) {
 		ROS_ERROR("PeopleExtraction - link_name_patterns is empty! Class would be ill-formed");
 		return;
 	}
@@ -42,21 +44,22 @@ PeopleExtraction::PeopleExtraction():
 	}
 
 	// create ROS interfaces
-	pub_people_ = nh_.advertise<people_msgs::People>("/people", 5);
-	pub_pos_ = nh_.advertise<people_msgs::PositionMeasurementArray>("/people_measurements", 5);
-	sub_model_states_ = nh_.subscribe<gazebo_msgs::ModelStates>(
+	model_extractor_ = std::make_unique<GazeboModelExtractor>(
+		nh_,
 		"/gazebo/model_states",
-		1,
-		&PeopleExtraction::gazeboModelStateCallback,
-		this
+		model_name_patterns,
+		id_ref_
 	);
 
-	sub_link_states_ = nh_.subscribe<gazebo_msgs::LinkStates>(
+	link_extractor_ = std::make_unique<GazeboLinkExtractor>(
+		nh_,
 		"/gazebo/link_states",
-		1,
-		&PeopleExtraction::gazeboLinkStateCallback,
-		this
+		link_name_patterns,
+		id_ref_
 	);
+
+	pub_people_ = nh_.advertise<people_msgs::People>("/people", 5);
+	pub_pos_ = nh_.advertise<people_msgs::PositionMeasurementArray>("/people_measurements", 5);
 
 	timer_pub_ = nh_.createTimer(
 		ros::Duration(1.0 / pub_frequency),
@@ -65,141 +68,6 @@ PeopleExtraction::PeopleExtraction():
 			this
 		)
 	);
-}
-
-void PeopleExtraction::gazeboModelStateCallback(const gazebo_msgs::ModelStates::ConstPtr& msg) {
-	if (msg->name.size() != msg->pose.size() || msg->name.size() != msg->twist.size()) {
-		ROS_ERROR("Vector sizes in the input message are not equal, cannot process further");
-		return;
-	}
-	std::lock_guard<std::mutex> lock(mutex_ms_);
-
-	// update internal database dynamically
-	size_t models_found = 0;
-	size_t models_total = msg->name.size();
-	for (size_t i = 0; i < models_total; i++) {
-		// investigated object - obtain only the name at this stage
-		const auto& name = msg->name.at(i);
-		// check whether a model with a given name is of our interest (according to the naming patterns)
-		bool pattern_matched = false;
-		std::string pattern;
-		std::tie(pattern_matched, pattern) = isMatching(name, model_name_patterns_);
-		if (!pattern_matched) {
-			continue;
-		}
-
-		models_found++;
-		gazebo_msgs::ModelState model;
-		model.model_name = name;
-		model.pose = msg->pose.at(i);
-		model.twist = msg->twist.at(i);
-
-		// check whether the person already exists in the internal database (only need ModelState update then)
-		if (doesPersonExist(people_models_, name)) {
-			people_models_[name].second = model;
-			continue;
-		}
-		// new model - assign an ID and update its ModelState
-		people_models_[name] = {people_models_.size(), model};
-		ROS_INFO(
-			"Tracking a new person '%s' (ID: '%lu'), detected from naming pattern: '%s' (models)",
-			people_models_[name].second.model_name.c_str(),
-			people_models_[name].first,
-			pattern.c_str()
-		);
-	}
-
-	// possibly delete renamed/destroyed objects
-	deleteDestroyedPerson(people_models_, msg->name);
-}
-
-void PeopleExtraction::gazeboLinkStateCallback(const gazebo_msgs::LinkStates::ConstPtr& msg) {
-	if (msg->name.size() != msg->pose.size() || msg->name.size() != msg->twist.size()) {
-		ROS_ERROR("Vector sizes in the input message are not equal, cannot process further");
-		return;
-	}
-	std::lock_guard<std::mutex> lock(mutex_ls_);
-
-	// update internal database dynamically
-	size_t links_found = 0;
-	size_t links_total = msg->name.size();
-	for (size_t i = 0; i < links_total; i++) {
-		// investigated object - obtain only the name at this stage
-		const auto& name = msg->name.at(i);
-		// check whether a model with a given name is of our interest (according to the naming patterns)
-		bool pattern_matched = false;
-		std::string pattern;
-		std::tie(pattern_matched, pattern) = isMatching(name, link_name_patterns_);
-		if (!pattern_matched) {
-			continue;
-		}
-
-		links_found++;
-		gazebo_msgs::ModelState model;
-		model.model_name = name;
-		model.pose = msg->pose.at(i);
-		model.twist = msg->twist.at(i);
-
-		// check whether the person already exists in the internal database (only need ModelState update then)
-		if (doesPersonExist(people_links_, name)) {
-			people_links_[name].second = model;
-			continue;
-		}
-		// new model - assign an ID and update its ModelState
-		people_links_[name] = {people_links_.size(), model};
-		ROS_INFO(
-			"Tracking a new person '%s' (ID: '%lu'), detected from naming pattern: '%s' (links)",
-			people_links_[name].second.model_name.c_str(),
-			people_links_[name].first,
-			pattern.c_str()
-		);
-	}
-
-	// possibly delete renamed/destroyed objects
-	deleteDestroyedPerson(people_links_, msg->name);
-}
-
-bool PeopleExtraction::doesPersonExist(
-	const std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>>& people,
-	const std::string& name
-) const {
-	return people.find(name) != people.cend();
-}
-
-std::tuple<bool, std::string> PeopleExtraction::isMatching(
-	const std::string& model_name,
-	std::vector<std::string>& patterns
-) const {
-	for (const auto& pattern: patterns) {
-		// try to find
-		if (model_name.find(pattern) == std::string::npos) {
-			continue;
-		}
-		return {true, pattern};
-	}
-	return {false, std::string()};
-}
-
-void PeopleExtraction::deleteDestroyedPerson(
-	std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>>& people,
-	const std::vector<std::string>& model_names
-) const {
-	auto i = std::begin(people);
-	// while is safer than for here
-	while (i != std::end(people)) {
-		// map and nested pair
-		auto model_name = i->second.second.model_name;
-		auto it = std::find(model_names.begin(), model_names.end(), model_name);
-		if (it != model_names.end()) {
-			// found
-			i++;
-			continue;
-		}
-		// delete current element
-		ROS_INFO("Deleting '%s' from database", model_name.c_str());
-		// erase from map; ref: https://stackoverflow.com/a/2874533
-		i = people.erase(i);
-	}
 }
 
 people_msgs_utils::People PeopleExtraction::gazeboModelsToPeople(
@@ -279,14 +147,11 @@ people_msgs_utils::People PeopleExtraction::gazeboModelsToPeople(
 }
 
 void PeopleExtraction::publish() {
-	std::lock_guard<std::mutex> lock_ms(mutex_ms_);
-	std::lock_guard<std::mutex> lock_ls(mutex_ls_);
-
 	// combine entities obtained from "models" and from "links"
 	std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>> people_gazebo;
 	// start with copying 1st and extend with the 2nd container
-	people_gazebo = people_models_;
-	for (auto const& [key, val]: people_links_) {
+	people_gazebo = model_extractor_->getPeople();
+	for (auto const& [key, val]: link_extractor_->getPeople()) {
 		people_gazebo[key] = val;
 	}
 
