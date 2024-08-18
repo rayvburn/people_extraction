@@ -1,3 +1,4 @@
+# The example configuration fits https://github.com/aws-robotics/aws-robomaker-hospital-world
 model_name_patterns: [
   "actor",
 ]
