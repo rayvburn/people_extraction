@@ -21,6 +21,24 @@ PeopleExtraction::PeopleExtraction():
 	nh_.param<std::string>("world_frame", world_tf_frame_, "world");
 	nh_.param<std::string>("target_frame", target_tf_frame_, "odom");
 
+	// publishing frequency check
+	if (pub_frequency <= 0.0) {
+		ROS_ERROR(
+			"Simulator-based people data will not be published as wrong frequency was selected: %f Hz",
+			pub_frequency
+		);
+		return;
+	}
+	// TF frame names validity check
+	if (world_tf_frame_.empty()) {
+		ROS_ERROR("Cannot run HuBeRo actors data publisher, as the `target_frame` parameter is empty!");
+		return;
+	}
+	if (target_tf_frame_.empty()) {
+		ROS_ERROR("Cannot run HuBeRo actors data publisher, as the `target_frame` parameter is empty!");
+		return;
+	}
+
 	// TF frame names validity check
 	if (world_tf_frame_.empty()) {
 		ROS_ERROR("Cannot run HuBeRo actors data publisher, as the `target_frame` parameter is empty!");
@@ -35,39 +53,31 @@ PeopleExtraction::PeopleExtraction():
 	std::vector<std::string> model_name_patterns;
 	nh_.getParam("model_name_patterns", model_name_patterns);
 	if (!model_name_patterns.size()) {
-		ROS_ERROR("PeopleExtraction - model_name_patterns is empty! Class would be ill-formed");
-		return;
+		ROS_WARN("Gazebo people model extractor will not be formed as the 'model_name_patterns' parameter is empty");
+	} else {
+		// create a ROS interface for extracting model states
+		model_extractor_ = std::make_unique<GazeboModelExtractor>(
+			nh_,
+			"/gazebo/model_states",
+			model_name_patterns,
+			id_ref_
+		);
 	}
+
 	std::vector<std::string> link_name_patterns;
 	nh_.getParam("link_name_patterns", link_name_patterns);
 	if (!link_name_patterns.size()) {
-		ROS_ERROR("PeopleExtraction - link_name_patterns is empty! Class would be ill-formed");
-		return;
-	}
-
-	// publishing frequency check
-	if (pub_frequency <= 0.0) {
-		ROS_ERROR(
-			"Simulator-based people data will not be published as wrong frequency was selected: %f Hz",
-			pub_frequency
+		ROS_WARN("Gazebo people link extractor will not be formed as the 'link_name_patterns' parameter is empty");
+	} else {
+		// create a ROS interface for extracting link states
+		link_extractor_ = std::make_unique<GazeboLinkExtractor>(
+			nh_,
+			"/gazebo/link_states",
+			link_name_patterns,
+			id_ref_
 		);
-		return;
 	}
 
-	// create ROS interfaces
-	model_extractor_ = std::make_unique<GazeboModelExtractor>(
-		nh_,
-		"/gazebo/model_states",
-		model_name_patterns,
-		id_ref_
-	);
-
-	link_extractor_ = std::make_unique<GazeboLinkExtractor>(
-		nh_,
-		"/gazebo/link_states",
-		link_name_patterns,
-		id_ref_
-	);
 	hubero_extractor_ = std::make_unique<HuberoExtractor>(
 		nh_,
 		id_ref_,
@@ -234,12 +244,23 @@ people_msgs_utils::People PeopleExtraction::huberoActorsToPeople(
 }
 
 void PeopleExtraction::publish() {
+	// helper function
+	auto extendMap = [](
+		std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>>& dest,
+		const std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>>& src
+	) {
+		for (auto const& [key, val]: src) {
+			dest[key] = val;
+		}
+	};
+
 	// combine entities obtained from "models" and from "links"
 	std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>> people_gazebo;
-	// start with copying 1st and extend with the 2nd container
-	people_gazebo = model_extractor_->getPeople();
-	for (auto const& [key, val]: link_extractor_->getPeople()) {
-		people_gazebo[key] = val;
+	if (model_extractor_) {
+		extendMap(people_gazebo, model_extractor_->getPeople());
+	}
+	if (link_extractor_) {
+		extendMap(people_gazebo, link_extractor_->getPeople());
 	}
 
 	// HuBeRo actors
