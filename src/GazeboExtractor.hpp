@@ -35,7 +35,7 @@ public:
         );
     }
 
-    std::map<std::string, std::pair<size_t, Tcontainer>> getPeople() const {
+    inline std::map<std::string, std::pair<size_t, Tcontainer>> getPeople() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return people_;
     }
