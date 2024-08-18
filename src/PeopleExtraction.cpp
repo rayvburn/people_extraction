@@ -21,6 +21,16 @@ PeopleExtraction::PeopleExtraction():
 	nh_.param<std::string>("world_frame", world_tf_frame_, "world");
 	nh_.param<std::string>("target_frame", target_tf_frame_, "odom");
 
+	// TF frame names validity check
+	if (world_tf_frame_.empty()) {
+		ROS_ERROR("Cannot run HuBeRo actors data publisher, as the `target_frame` parameter is empty!");
+		return;
+	}
+	if (target_tf_frame_.empty()) {
+		ROS_ERROR("Cannot run HuBeRo actors data publisher, as the `target_frame` parameter is empty!");
+		return;
+	}
+
 	// obtain model and link name patterns
 	std::vector<std::string> model_name_patterns;
 	nh_.getParam("model_name_patterns", model_name_patterns);
