@@ -10,12 +10,9 @@
 #include <ros/ros.h>
 #include "PeopleExtraction.hpp"
 
-int main(int argc, char** argv)
-{
-
-  ros::init(argc, argv, "people_extraction");
-  PeopleExtraction legs;
-  ros::spin();
-  return 0;
-
+int main(int argc, char** argv) {
+	ros::init(argc, argv, "people_extraction");
+	PeopleExtraction extraction;
+	ros::spin();
+	return 0;
 }

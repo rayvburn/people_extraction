@@ -5,22 +5,29 @@
  *      Author: rayvburn
  */
 
-#ifndef SRC_PEOPLEEXTRACTION_HPP_
-#define SRC_PEOPLEEXTRACTION_HPP_
+#pragma once
 
 #include <ros/ros.h>
+
+#include <gazebo_msgs/ModelState.h>
+#include <gazebo_msgs/ModelStates.h>
+#include <gazebo_msgs/LinkState.h>
+#include <gazebo_msgs/LinkStates.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/TwistStamped.h>
+
 #include <people_msgs/People.h>
 #include <people_msgs/PersonStamped.h>
 #include <people_msgs/PositionMeasurementArray.h>
-#include <gazebo_msgs/ModelStates.h>
-#include <geometry_msgs/PoseStamped.h>
-#include <geometry_msgs/TwistStamped.h>
+#include <people_msgs_utils/person.h>
+
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+
 #include <mutex>
 
-#include "Person.hpp"
+#include "GazeboExtractor.hpp"
+#include "HuberoExtractor.hpp"
 
 class PeopleExtraction {
 public:
@@ -28,73 +35,48 @@ public:
 	virtual ~PeopleExtraction() = default;
 
 private:
-	/**
-	 * @brief
-	 * @note This is a high frequency topic
-	 * @note TODO: message_filters, TimeSynchronizer?
-	 * @param msg
-	 */
-	void gazeboModelStateCallback(const gazebo_msgs::ModelStates::ConstPtr &msg);
+	/// Searches through parameters to obtain a simple TF to be applied once reporting localization data
+	std::map<std::string, std::vector<double>> discoverTransforms(
+		const std::vector<std::string>& name_patterns
+	) const;
 
 	/**
-	 * @brief Evaluates, whether the person exists in the internal database
-	 * @param name: name of the person that is searched for
-	 * @return
+	 * @brief Converts Gazebo ModelStates database to people representation in the @ref people_msgs_utils::People form
+	 *
+	 * @return people_msgs_utils::People
 	 */
-	bool doesPersonExist(const std::string &name) const;
+	people_msgs_utils::People gazeboModelsToPeople(
+		const std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>>& people_models
+	) const;
 
-	/**
-	 * @brief Finds models that meet the given pattern
-	 * @param model_names
-	 * @param pattern
-	 * @return
-	 */
-	std::vector<std::string> findModels(const std::vector<std::string> &model_names, std::string pattern) const;
+	people_msgs_utils::People huberoActorsToPeople(
+		const std::vector<std::unique_ptr<ActorLocalizationSubscriber>>& actors
+	) const;
 
-	/**
-	 * @brief Get rid of the unnecessary model
-	 * @param model_names
-	 */
-	void deleteDestroyedPerson(const std::vector<std::string> &model_names);
+	void publish();
+	void publishPeople(const people_msgs_utils::People& people);
+	void publishPeoplePositions(const people_msgs_utils::People& people);
 
-	/**
-	 * @brief Executes rotation of the `vel` vector according to the given `transform`
-	 * @param vel: modified - rotated vector
-	 * @param transform
-	 */
-	void rotateTwist(geometry_msgs::TwistStamped &vel, const geometry_msgs::TransformStamped &transform);
-
-	void publishPeople();
-	void publishPeoplePositions();
-
-	static constexpr char* GAZEBO_FRAME_ID_DEFAULT = "world";
-	static constexpr char* TARGET_FRAME_ID_DEFAULT = "map";
 	ros::NodeHandle nh_;
+
+	typedef GazeboExtractor<gazebo_msgs::ModelStates::ConstPtr, gazebo_msgs::ModelStates, gazebo_msgs::ModelState> GazeboModelExtractor;
+	typedef GazeboExtractor<gazebo_msgs::LinkStates::ConstPtr, gazebo_msgs::LinkStates, gazebo_msgs::ModelState> GazeboLinkExtractor;
+	// NOTE: unfortunately, ROS Message Filters do not work with gazebo_msgs-based topics as those messages
+	// do not carry timestamp values
+	std::unique_ptr<GazeboModelExtractor> model_extractor_;
+	std::unique_ptr<GazeboLinkExtractor> link_extractor_;
+	// HuBeRo framework-specific extractor
+	std::unique_ptr<HuberoExtractor> hubero_extractor_;
+	std::atomic<size_t> id_ref_;
 
 	tf2_ros::Buffer tf_buffer_;
 	tf2_ros::TransformListener tf_listener_;
 
-	std::mutex mutex_;
-	ros::Subscriber sub_gazebo_;
 	ros::Publisher pub_people_;
 	ros::Publisher pub_pos_;
 
-	std::vector<Person> people_data_;
-	/// @brief Algorithms looks for a model name that meets one of the given patterns
-	std::vector<std::string> people_name_patterns_;
-	/// @brief Stores name and ID correspondence of detected people
-	std::map<std::string, int> people_name_id_;
-
-	int id_next_;
-	std::string gazebo_tf_frame_;
+	std::string world_tf_frame_;
 	std::string target_tf_frame_;
-	int callback_counter_;
-	int callback_omits_;
-	unsigned long int seq_;
 
-	// possibly extend package features to:
-	// filtering detected obstacles - republishing ones indicating not-legs
-	friend class LegsExtraction;
+	ros::Timer timer_pub_;
 };
-
-#endif /* SRC_PEOPLEEXTRACTION_HPP_ */
