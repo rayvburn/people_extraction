@@ -16,6 +16,7 @@ PeopleExtraction::PeopleExtraction():
 	id_ref_(0),
 	tf_listener_(tf_buffer_)
 {
+	auto discovery_frequency = nh_.param<double>("discovery_frequency", 0.5);
 	auto pub_frequency = nh_.param<double>("pub_frequency", 30.0);
 	nh_.param<std::string>("world_frame", world_tf_frame_, "world");
 	nh_.param<std::string>("target_frame", target_tf_frame_, "odom");
@@ -56,6 +57,11 @@ PeopleExtraction::PeopleExtraction():
 		"/gazebo/link_states",
 		link_name_patterns,
 		id_ref_
+	);
+	hubero_extractor_ = std::make_unique<HuberoExtractor>(
+		nh_,
+		id_ref_,
+		discovery_frequency
 	);
 
 	pub_people_ = nh_.advertise<people_msgs::People>("/people", 5);
@@ -146,6 +152,77 @@ people_msgs_utils::People PeopleExtraction::gazeboModelsToPeople(
 	return people;
 }
 
+people_msgs_utils::People PeopleExtraction::huberoActorsToPeople(
+	const std::vector<std::unique_ptr<ActorLocalizationSubscriber>>& actors
+) const {
+	// prepare output container
+	people_msgs_utils::People people;
+
+	// access to, e.g., TF buffer, subscribers
+	for (const auto& sub: actors) {
+		auto odom = sub->getOdom();
+
+		// transform localization data to the desired frame
+		geometry_msgs::TransformStamped tf_stamped;
+		// by default - lack of translation and rotation
+		tf_stamped.transform.rotation.w = 1.0;
+
+		// obtain the transform to the desired frame
+		try {
+			tf_stamped = tf_buffer_.lookupTransform(
+				target_tf_frame_,
+				odom.header.frame_id,
+				ros::Time(0)
+			);
+		} catch (tf2::TransformException& ex) {
+			ROS_ERROR(
+				"Could not transform `%s`'s pose! Exception details: `%s`",
+				sub->getName().c_str(),
+				ex.what()
+			);
+			// avoid flooding console with this kind of errors (localization might not be operational yet)
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+			return people;
+		}
+
+		// convert data from twist to pose representation (contents are the same)
+		geometry_msgs::PoseWithCovariance odom_vel;
+		odom_vel.covariance = odom.twist.covariance;
+		odom_vel.pose.position.x = odom.twist.twist.linear.x;
+		odom_vel.pose.position.y = odom.twist.twist.linear.y;
+		odom_vel.pose.position.z = odom.twist.twist.linear.z;
+		tf2::Quaternion angular_vel;
+		// NOTE: for a proper yaw angle, yaw, pitch and roll angles must be reordered (compared to the documentation)
+		angular_vel.setEuler(
+			odom.twist.twist.angular.x,
+			odom.twist.twist.angular.y,
+			odom.twist.twist.angular.z
+		);
+		odom_vel.pose.orientation = tf2::toMsg(angular_vel);
+
+		// create a Person instance (with geom. data in the source frame)
+		people_msgs_utils::Person p(
+			std::to_string(sub->getID()), // avoid using 'string'-type names here
+			odom.pose,
+			odom_vel,
+			1.0, // complete reliability
+			false,
+			true,
+			sub->getID(),
+			ros::Time::now().toNSec(), // track age = since startup as we have ideal data
+			std::string("") // group data not included
+		);
+		// TODO: include group data (e.g., detect "follow" task execution)
+
+		// transform to the target frame
+		p.transform(tf_stamped);
+
+		// add to the aggregated container
+		people.push_back(p);
+	}
+	return people;
+}
+
 void PeopleExtraction::publish() {
 	// combine entities obtained from "models" and from "links"
 	std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>> people_gazebo;
@@ -155,13 +232,20 @@ void PeopleExtraction::publish() {
 		people_gazebo[key] = val;
 	}
 
+	// HuBeRo actors
+	const auto& people_hubero = hubero_extractor_->get();
+
 	// check if there is something to publish
-	if (people_gazebo.empty()) {
+	if (people_gazebo.empty() && people_hubero.empty()) {
 		return;
 	}
 
 	// Gazebo models to people representation
 	auto people = gazeboModelsToPeople(people_gazebo);
+	// HuBeRo actors to people
+	for (const auto& person: huberoActorsToPeople(people_hubero)) {
+		people.push_back(person);
+	}
 
 	publishPeople(people);
 	publishPeoplePositions(people);

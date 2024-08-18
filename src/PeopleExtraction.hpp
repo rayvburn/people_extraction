@@ -27,6 +27,7 @@
 #include <mutex>
 
 #include "GazeboExtractor.hpp"
+#include "HuberoExtractor.hpp"
 
 class PeopleExtraction {
 public:
@@ -43,6 +44,10 @@ private:
 		const std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>>& people_models
 	) const;
 
+	people_msgs_utils::People huberoActorsToPeople(
+		const std::vector<std::unique_ptr<ActorLocalizationSubscriber>>& actors
+	) const;
+
 	void publish();
 	void publishPeople(const people_msgs_utils::People& people);
 	void publishPeoplePositions(const people_msgs_utils::People& people);
@@ -55,6 +60,8 @@ private:
 	// do not carry timestamp values
 	std::unique_ptr<GazeboModelExtractor> model_extractor_;
 	std::unique_ptr<GazeboLinkExtractor> link_extractor_;
+	// HuBeRo framework-specific extractor
+	std::unique_ptr<HuberoExtractor> hubero_extractor_;
 	std::atomic<size_t> id_ref_;
 
 	tf2_ros::Buffer tf_buffer_;

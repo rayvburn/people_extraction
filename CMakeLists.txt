@@ -24,6 +24,10 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GAZEBO_CXX_FLAGS}")
 add_library(people_extraction 
 	src/PeopleExtraction.hpp 
 	src/PeopleExtraction.cpp
+	src/GazeboExtractor.hpp
+	src/ActorLocalizationSubscriber.hpp
+	src/HuberoExtractor.hpp
+	src/HuberoExtractor.cpp
 )
 
 target_link_libraries(people_extraction
