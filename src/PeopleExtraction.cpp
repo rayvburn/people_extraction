@@ -51,7 +51,14 @@ PeopleExtraction::PeopleExtraction():
 
 	// obtain model and link name patterns
 	std::vector<std::string> model_name_patterns;
+	std::vector<std::string> link_name_patterns;
 	nh_.getParam("model_name_patterns", model_name_patterns);
+	nh_.getParam("link_name_patterns", link_name_patterns);
+
+	// obtain additional transformations (patterns from above are needed)
+	auto models_transforms = discoverTransforms(model_name_patterns);
+	auto links_transforms = discoverTransforms(link_name_patterns);
+
 	if (!model_name_patterns.size()) {
 		ROS_WARN("Gazebo people model extractor will not be formed as the 'model_name_patterns' parameter is empty");
 	} else {
@@ -60,12 +67,11 @@ PeopleExtraction::PeopleExtraction():
 			nh_,
 			"/gazebo/model_states",
 			model_name_patterns,
+			models_transforms,
 			id_ref_
 		);
 	}
 
-	std::vector<std::string> link_name_patterns;
-	nh_.getParam("link_name_patterns", link_name_patterns);
 	if (!link_name_patterns.size()) {
 		ROS_WARN("Gazebo people link extractor will not be formed as the 'link_name_patterns' parameter is empty");
 	} else {
@@ -74,6 +80,7 @@ PeopleExtraction::PeopleExtraction():
 			nh_,
 			"/gazebo/link_states",
 			link_name_patterns,
+			links_transforms,
 			id_ref_
 		);
 	}
@@ -94,6 +101,34 @@ PeopleExtraction::PeopleExtraction():
 			this
 		)
 	);
+}
+
+std::map<std::string, std::vector<double>> PeopleExtraction::discoverTransforms(
+	const std::vector<std::string>& name_patterns
+) const {
+	std::map<std::string, std::vector<double>> transforms;
+	for (const auto& pattern: name_patterns) {
+		std::string param = "transforms/" + pattern;
+		std::vector<double> transform;
+		if (!nh_.getParam(param, transform)) {
+			continue;
+		}
+		if (transform.size() != 6) {
+			ROS_ERROR(
+				"Discovered additional transform for '%s' pattern but it has %lu elements, while 6 are required",
+				pattern.c_str(),
+				transform.size()
+			);
+			continue;
+		}
+		transforms[pattern] = transform;
+		ROS_INFO(
+			"Discovered additional transform for '%s' pattern with %lu elements\r\n",
+			pattern.c_str(),
+			transform.size()
+		);
+	}
+	return transforms;
 }
 
 people_msgs_utils::People PeopleExtraction::gazeboModelsToPeople(

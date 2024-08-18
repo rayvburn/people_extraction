@@ -2,6 +2,7 @@
 model_name_patterns: [
   "actor",
 ]
+
 link_name_patterns: [
   "Scrubs",
   "PatientWheelChair",
@@ -9,3 +10,17 @@ link_name_patterns: [
   "VisitorKidSit",
   "FemaleVisitorSit"
 ]
+
+# Additional transforms to be applied for some specific models
+transforms:
+  # the key here must match the "name patterns" above
+  actor: [
+    # transform is applied to elements one by one;
+    # the order of elements is: x, y, z, roll, pitch, yaw
+    +0.0,
+    +0.0,
+    -1.03,
+    -1.5708,
+    +0.0,
+    -1.5708
+  ]

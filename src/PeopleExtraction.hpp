@@ -35,6 +35,11 @@ public:
 	virtual ~PeopleExtraction() = default;
 
 private:
+	/// Searches through parameters to obtain a simple TF to be applied once reporting localization data
+	std::map<std::string, std::vector<double>> discoverTransforms(
+		const std::vector<std::string>& name_patterns
+	) const;
+
 	/**
 	 * @brief Converts Gazebo ModelStates database to people representation in the @ref people_msgs_utils::People form
 	 *

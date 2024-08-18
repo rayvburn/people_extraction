@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ros/ros.h>
+#include <tf/transform_datatypes.h>
 
 #include <atomic>
 #include <mutex>
@@ -22,9 +23,11 @@ public:
 		ros::NodeHandle& nh,
 		const std::string& topic_name,
 		const std::vector<std::string>& name_patterns,
+		const std::map<std::string, std::vector<double>>& transforms,
 		std::atomic<size_t>& id_ref
 	):
 		name_patterns_(name_patterns),
+		transforms_(transforms),
 		id_ref_(id_ref)
 	{
 		sub_ = nh.subscribe<Tsub>(
@@ -73,6 +76,37 @@ protected:
 			model.model_name = name;
 			model.pose = msg->pose.at(i);
 			model.twist = msg->twist.at(i);
+
+			// check whether additional transform is required for this entity
+			if (transforms_.find(pattern) != transforms_.cend()) {
+				auto tf_vector = transforms_[pattern];
+				model.pose.position.x += tf_vector.at(0);
+				model.pose.position.y += tf_vector.at(1);
+				model.pose.position.z += tf_vector.at(2);
+
+				// original quaternion to roll pitch yaw
+				tf::Quaternion q(
+					model.pose.orientation.x,
+					model.pose.orientation.y,
+					model.pose.orientation.z,
+					model.pose.orientation.w
+				);
+				tf::Matrix3x3 m(q);
+				double roll, pitch, yaw;
+				m.getRPY(roll, pitch, yaw);
+				// apply transformation as RPY
+				roll += tf_vector.at(3);
+				pitch += tf_vector.at(4);
+				yaw += tf_vector.at(5);
+				// convert back to quaternion
+				tf::Quaternion q_out;
+				q_out.setRPY(roll, pitch, yaw);
+
+				model.pose.orientation.x = q_out.x();
+				model.pose.orientation.y = q_out.y();
+				model.pose.orientation.z = q_out.z();
+				model.pose.orientation.w = q_out.w();
+			}
 
 			// check whether the person already exists in the internal database (only need ModelState update then)
 			if (doesPersonExist(name)) {
@@ -154,6 +188,7 @@ protected:
 
 	/// @brief Algorithm looks for a model name that meets one of the given patterns
 	std::vector<std::string> name_patterns_;
+	std::map<std::string, std::vector<double>> transforms_;
 
 	// For assigning IDs between multiple classes
 	std::atomic<size_t>& id_ref_;
