@@ -35,6 +35,13 @@ public:
 	virtual ~PeopleExtraction() = default;
 
 private:
+	/**
+	 * @brief Evaluates ROS parameters searching for human group definitions
+	 * Prepares @ref member_groups_arrangement_ which is a map that eases filling the ROS messages later on.
+	 * Specifically, additional computations are performed at the beginning to ease the access when publishing data.
+	 */
+	void discoverGroupsConfiguration();
+
 	/// Searches through parameters to obtain a simple TF to be applied once reporting localization data
 	std::map<std::string, std::vector<double>> discoverTransforms(
 		const std::vector<std::string>& name_patterns
@@ -45,17 +52,21 @@ private:
 	 *
 	 * @return people_msgs_utils::People
 	 */
-	people_msgs_utils::People gazeboModelsToPeople(
+	std::map<std::string, people_msgs_utils::Person> gazeboModelsToPeople(
 		const std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>>& people_models
 	) const;
 
-	people_msgs_utils::People huberoActorsToPeople(
+	std::map<std::string, people_msgs_utils::Person> huberoActorsToPeople(
 		const std::vector<std::unique_ptr<ActorLocalizationSubscriber>>& actors
 	) const;
 
+	std::vector<std::pair<people_msgs_utils::Person, people_msgs_utils::Group>> createPeopleGroupAssociations(
+		const std::map<std::string, people_msgs_utils::Person>& people
+	);
+
 	void publish();
-	void publishPeople(const people_msgs_utils::People& people);
-	void publishPeoplePositions(const people_msgs_utils::People& people);
+	void publishPeople(const std::vector<std::pair<people_msgs_utils::Person, people_msgs_utils::Group>>& people_grouped);
+	void publishPeoplePositions(const std::vector<std::pair<people_msgs_utils::Person, people_msgs_utils::Group>>& people_grouped);
 
 	ros::NodeHandle nh_;
 
@@ -68,6 +79,9 @@ private:
 	// HuBeRo framework-specific extractor
 	std::unique_ptr<HuberoExtractor> hubero_extractor_;
 	std::atomic<size_t> id_ref_;
+
+	// Grouping map: Group ID to entities in that group
+	std::map<size_t, std::vector<std::string>> groups_arrangement_;
 
 	tf2_ros::Buffer tf_buffer_;
 	tf2_ros::TransformListener tf_listener_;

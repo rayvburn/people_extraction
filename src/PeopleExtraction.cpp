@@ -67,6 +67,9 @@ PeopleExtraction::PeopleExtraction():
 	auto models_transforms = discoverTransforms(model_name_patterns);
 	auto links_transforms = discoverTransforms(link_name_patterns);
 
+	// obtain group arrangements (relations between humans)
+	discoverGroupsConfiguration();
+
 	if (!model_name_patterns.size()) {
 		ROS_WARN("Gazebo people model extractor will not be formed as the 'model_name_patterns' parameter is empty");
 	} else {
@@ -115,6 +118,44 @@ PeopleExtraction::PeopleExtraction():
 	);
 }
 
+void PeopleExtraction::discoverGroupsConfiguration() {
+	// for defining unique IDs of groups
+	static size_t group_id = 0;
+
+	std::vector<std::string> groups_names;
+	nh_.getParam("groups/names", groups_names);
+	for (const auto& gname: groups_names) {
+		std::vector<std::string> group_entities;
+		nh_.getParam("groups/" + gname, group_entities);
+
+		if (group_entities.empty()) {
+			ROS_WARN(
+				"Group with name '%s' cannot be properly loaded as it has no entities assigned",
+				gname.c_str()
+			);
+			continue;
+		}
+
+		// string composition is here only for debugging purposes
+		std::string entity_names;
+		// Add entities to the original map
+		for (const auto& ename: group_entities) {
+			entity_names += "'" + ename + "' ";
+			groups_arrangement_[group_id].push_back(ename);
+		}
+
+		ROS_INFO(
+			"Discovered group with name '%s' - it has ID of '%lu' and %lu entities: %s",
+			gname.c_str(),
+			group_id,
+			group_entities.size(),
+			entity_names.c_str()
+		);
+
+		group_id++;
+	}
+}
+
 std::map<std::string, std::vector<double>> PeopleExtraction::discoverTransforms(
 	const std::vector<std::string>& name_patterns
 ) const {
@@ -143,7 +184,7 @@ std::map<std::string, std::vector<double>> PeopleExtraction::discoverTransforms(
 	return transforms;
 }
 
-people_msgs_utils::People PeopleExtraction::gazeboModelsToPeople(
+std::map<std::string, people_msgs_utils::Person> PeopleExtraction::gazeboModelsToPeople(
 	const std::map<std::string, std::pair<size_t, gazebo_msgs::ModelState>>& people_models
 ) const {
 	// transform localization data to the desired frame
@@ -167,16 +208,16 @@ people_msgs_utils::People PeopleExtraction::gazeboModelsToPeople(
 		);
 		// avoid flooding console with this kind of errors (localization might not be operational yet)
 		std::this_thread::sleep_for(std::chrono::seconds(1));
-		return people_msgs_utils::People();
+		return std::map<std::string, people_msgs_utils::Person>();
 	}
 
 	// prepare output container
-	people_msgs_utils::People people;
+	std::map<std::string, people_msgs_utils::Person> people;
 
-	for (auto const& model_data: people_models) {
+	for (const auto& [model_name, model_data]: people_models) {
 		// retrieve from the value (key is not considered here)
-		auto id = model_data.second.first;
-		auto model = model_data.second.second;
+		auto id = model_data.first;
+		auto model = model_data.second;
 
 		geometry_msgs::PoseWithCovariance pose;
 		pose.pose = model.pose;
@@ -208,22 +249,20 @@ people_msgs_utils::People PeopleExtraction::gazeboModelsToPeople(
 			ros::Time::now().toNSec(), // track age = since startup as we have ideal data
 			std::string("") // group data not included
 		);
-		// TODO: include group data (obtain from node parameters)
-
 		// transform to the target frame
 		p.transform(tf_stamped);
-		// collect
-		people.push_back(p);
+		// collect; note that the simulation model name is the key in this map
+		people.emplace(model_name, p);
 	}
 
 	return people;
 }
 
-people_msgs_utils::People PeopleExtraction::huberoActorsToPeople(
+std::map<std::string, people_msgs_utils::Person> PeopleExtraction::huberoActorsToPeople(
 	const std::vector<std::unique_ptr<ActorLocalizationSubscriber>>& actors
 ) const {
 	// prepare output container
-	people_msgs_utils::People people;
+	std::map<std::string, people_msgs_utils::Person> people;
 
 	// access to, e.g., TF buffer, subscribers
 	for (const auto& sub: actors) {
@@ -284,10 +323,149 @@ people_msgs_utils::People PeopleExtraction::huberoActorsToPeople(
 		// transform to the target frame
 		p.transform(tf_stamped);
 
-		// add to the aggregated container
-		people.push_back(p);
+		// add to the aggregated container; note that the simulation model name is the key in this map
+		people.emplace(sub->getName(), p);
 	}
 	return people;
+}
+
+std::vector<std::pair<people_msgs_utils::Person, people_msgs_utils::Group>> PeopleExtraction::createPeopleGroupAssociations(
+	const std::map<std::string, people_msgs_utils::Person>& people
+) {
+	const auto time_now = ros::Time::now().toNSec();
+
+	// duplicate the container at first, but it will have some info updated
+	std::map<std::string, people_msgs_utils::Person> people_updated_with_groups = people;
+
+	// groups container
+	std::vector<people_msgs_utils::Group> groups;
+
+	for (const auto& [group_id, group_members_names]: groups_arrangement_) {
+		// in this loop, we prepare arguments for group creation
+		std::map<std::string, people_msgs_utils::Person> people_in_group;
+		std::vector<std::string> member_ids_in_group;
+
+		// first iteration - gather group members and their IDs
+		for (const auto& [person_full_name, person]: people) {
+			// check whether the person name is found within group members patterns
+			bool pattern_matched = false;
+			std::string pattern;
+			std::tie(pattern_matched, pattern) = link_extractor_->doesNameMatchPatterns(person_full_name, group_members_names);
+			if (!pattern_matched) {
+				continue;
+			}
+			people_in_group.emplace(person_full_name, person);
+			member_ids_in_group.push_back(person.getName());
+		}
+
+		if (people_in_group.empty()) {
+			continue;
+		}
+
+		// second iteration - we need to properly assign group IDs to people
+		auto people_in_group_illformed = people_in_group;
+		people_in_group.clear();
+		for (const auto& [person_full_name, person_wo_group]: people_in_group_illformed) {
+			// prepare ctor args
+			geometry_msgs::PoseWithCovariance pose;
+			pose.pose = person_wo_group.getPose();
+			auto pose_covariance = person_wo_group.getCovariancePose();
+			std::copy(pose_covariance.begin(), pose_covariance.end(), pose.covariance.begin());
+
+			geometry_msgs::PoseWithCovariance velocity;
+			velocity.pose = person_wo_group.getVelocity();
+			auto velocity_covariance = person_wo_group.getCovarianceVelocity();
+			std::copy(velocity_covariance.begin(), velocity_covariance.end(), velocity.covariance.begin());
+
+			// create correctly formed instance (with group)
+			people_msgs_utils::Person person_with_group(
+				person_wo_group.getName(),
+				pose,
+				velocity,
+				person_wo_group.getReliability(),
+				person_wo_group.isOccluded(),
+				person_wo_group.isMatched(),
+				person_wo_group.getDetectionID(),
+				person_wo_group.getTrackAge(),
+				std::to_string(group_id)
+			);
+			people_in_group.emplace(person_full_name, person_with_group);
+			people_updated_with_groups.insert_or_assign(person_full_name, person_with_group);
+		}
+
+		// third iteration - collect relations between members
+		const double RELATION_STRENGTH = 1.0; // hard coded with a maximum value due to the ideal data
+		std::vector<std::tuple<std::string, std::string, double>> member_relations;
+		for (const auto& person_with_full_name_1: people_in_group) {
+			auto person1 = person_with_full_name_1.second;
+			for (const auto& person_with_full_name_2: people_in_group) {
+				auto person2 = person_with_full_name_2.second;
+				if (person1.getName() == person2.getName()) {
+					continue;
+				}
+				member_relations.push_back(std::make_tuple(person1.getName(), person2.getName(), RELATION_STRENGTH));
+			}
+		}
+
+		// fourth iteration - compute center of gravity of the group - mean of positions of the members
+		geometry_msgs::Point center_of_gravity;
+		for (const auto& person_with_full_name: people_in_group) {
+			auto person = person_with_full_name.second;
+			center_of_gravity.x += person.getPositionX();
+			center_of_gravity.y += person.getPositionY();
+			center_of_gravity.z += person.getPositionZ();
+		}
+		center_of_gravity.x /= people_in_group.size();
+		center_of_gravity.y /= people_in_group.size();
+		center_of_gravity.z /= people_in_group.size();
+
+		// fifth interation: create a container with only Person objects
+		std::vector<people_msgs_utils::Person> people_in_group_wo_full_names;
+		for (const auto& person_with_full_name: people_in_group) {
+			people_in_group_wo_full_names.push_back(person_with_full_name.second);
+		}
+
+		// collect group in an aggregated container
+		groups.emplace_back(
+			std::to_string(group_id),
+			time_now, // time since the system startup as we have ideal data
+			people_in_group_wo_full_names,
+			member_ids_in_group,
+			member_relations,
+			center_of_gravity
+		);
+	}
+
+	// prepare associations so they can be easily used in publishing methods (there is some memory overhead
+	// due to duplicating groups)
+	std::vector<std::pair<people_msgs_utils::Person, people_msgs_utils::Group>> people_grouped;
+
+	// NOTE: we cannot rely on 'people' container as its Person instances have not group names assigned
+	for (const auto& person_with_full_name: people_updated_with_groups) {
+		// obtain only the Person instance, ignore the full name
+		auto person = person_with_full_name.second;
+		if (!person.isAssignedToGroup()) {
+			// person without a group - create a dummy one
+			people_grouped.emplace_back(person, people_msgs_utils::Group());
+			continue;
+		}
+
+		// search for the correct group instance
+		bool group_found = false;
+		for (const auto& group: groups) {
+			if (person.getGroupName() != group.getName()) {
+				continue;
+			}
+			people_grouped.emplace_back(person, group);
+			group_found = true;
+		}
+		if (group_found) {
+			continue;
+		}
+		// a proper group was not found
+		people_grouped.emplace_back(person, people_msgs_utils::Group());
+	}
+	return people_grouped;
 }
 
 void PeopleExtraction::publish() {
@@ -318,35 +496,55 @@ void PeopleExtraction::publish() {
 		return;
 	}
 
-	// Gazebo models to people representation
-	auto people = gazeboModelsToPeople(people_gazebo);
-	// HuBeRo actors to people
-	for (const auto& person: huberoActorsToPeople(people_hubero)) {
-		people.push_back(person);
-	}
+	// another helper function
+	auto extendPeopleMap = [](
+		std::map<std::string, people_msgs_utils::Person>& dest,
+		const std::map<std::string, people_msgs_utils::Person>& src
+	) {
+		// we cannot use `map[key] = value` as the `value` here does not have a default constructor
+		for (auto const& [key, val]: src) {
+			dest.emplace(key, val);
+		}
+	};
 
-	publishPeople(people);
-	publishPeoplePositions(people);
+	// aggregated container
+	std::map<std::string, people_msgs_utils::Person> people;
+	// Gazebo models to people representation
+	extendPeopleMap(people, gazeboModelsToPeople(people_gazebo));
+	// HuBeRo actors to people
+	extendPeopleMap(people, huberoActorsToPeople(people_hubero));
+
+	// associate group data for each person
+	auto people_grouped = createPeopleGroupAssociations(people);
+
+	publishPeople(people_grouped);
+	publishPeoplePositions(people_grouped);
 }
 
-void PeopleExtraction::publishPeople(const people_msgs_utils::People& people) {
+void PeopleExtraction::publishPeople(
+	const std::vector<std::pair<people_msgs_utils::Person, people_msgs_utils::Group>>& people_grouped
+) {
 	people_msgs::People people_msg;
 
 	people_msg.header.frame_id = target_tf_frame_;
 	people_msg.header.stamp = ros::Time::now();
-	for (const auto& person: people) {
-		people_msg.people.push_back(person.toPersonStd());
+	for (const auto& [person, group]: people_grouped) {
+		people_msg.people.push_back(person.toPersonStd(group));
 	}
 	pub_people_.publish(people_msg);
 }
 
-void PeopleExtraction::publishPeoplePositions(const people_msgs_utils::People& people) {
+void PeopleExtraction::publishPeoplePositions(
+	const std::vector<std::pair<people_msgs_utils::Person, people_msgs_utils::Group>>& people_grouped
+) {
 	people_msgs::PositionMeasurementArray pos_msg_array;
 
 	pos_msg_array.header.frame_id = target_tf_frame_;
 	pos_msg_array.header.stamp = ros::Time::now();
 
-	for (auto person: people) {
+	for (auto person_with_group: people_grouped) {
+		auto person = person_with_group.first;
+
 		people_msgs::PositionMeasurement pos_msg;
 		pos_msg.header = pos_msg_array.header;
 
