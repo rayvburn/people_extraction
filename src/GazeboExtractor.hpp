@@ -55,6 +55,27 @@ public:
 		return people_;
 	}
 
+	/**
+	 * @brief Evaluates whether the given @ref model_name matches any pattern given by @ref patterns
+	 *
+	 * @param model_name
+	 * @param patterns
+	 * @return std::tuple<bool, std::string>
+	 */
+	static std::tuple<bool, std::string> doesNameMatchPatterns(
+		const std::string& model_name,
+		const std::vector<std::string>& patterns
+	) {
+		for (const auto& pattern: patterns) {
+			// try to find
+			if (model_name.find(pattern) == std::string::npos) {
+				continue;
+			}
+			return {true, pattern};
+		}
+		return {false, std::string()};
+	}
+
 protected:
 	/**
 	 * @brief
@@ -91,8 +112,7 @@ protected:
 			// check whether a model with a given name is of our interest (according to the naming patterns)
 			bool pattern_matched = false;
 			std::string pattern;
-
-			std::tie(pattern_matched, pattern) = isMatching(name, name_patterns_);
+			std::tie(pattern_matched, pattern) = doesNameMatchPatterns(name, name_patterns_);
 			if (!pattern_matched) {
 				continue;
 			}
@@ -237,27 +257,6 @@ protected:
 	 */
 	bool doesPersonExist(const std::string& name) const {
 		return people_.find(name) != people_.cend();
-	}
-
-	/**
-	 * @brief Evaluates whether the given @ref model_name matches any pattern given by @ref patterns
-	 *
-	 * @param model_name
-	 * @param patterns
-	 * @return std::tuple<bool, std::string>
-	 */
-	std::tuple<bool, std::string> isMatching(
-		const std::string& model_name,
-		std::vector<std::string>& patterns
-	) const {
-		for (const auto& pattern: patterns) {
-			// try to find
-			if (model_name.find(pattern) == std::string::npos) {
-				continue;
-			}
-			return {true, pattern};
-		}
-		return {false, std::string()};
 	}
 
 	/**
