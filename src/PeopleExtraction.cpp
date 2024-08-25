@@ -7,10 +7,9 @@
 
 #include "PeopleExtraction.hpp"
 
+#include <ros/topic_manager.h>
 #include <tf2/convert.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
-
-#include <thread>
 
 PeopleExtraction::PeopleExtraction():
 	id_ref_(0),
@@ -116,6 +115,35 @@ PeopleExtraction::PeopleExtraction():
 			this
 		)
 	);
+
+	topics_waiter_ = std::thread([this]() {
+		bool topics_available = false;
+		auto tm_ptr = ros::TopicManager::instance();
+		while (!topics_available && ros::ok()) {
+			// check whether a topic is taken into consideration and published
+			bool models_topic_ok = !model_extractor_ || tm_ptr->getNumPublishers("/gazebo/model_states") > 0;
+			bool links_topic_ok = !link_extractor_ || tm_ptr->getNumPublishers("/gazebo/link_states") > 0;
+			topics_available = models_topic_ok && links_topic_ok;
+			if (!topics_available) {
+				ROS_INFO("Waiting for the topics to become available...");
+			}
+			ros::Duration(0.5).sleep();
+		}
+
+		ROS_INFO("Preparing to enable callback processing...");
+		ros::Duration(1.0).sleep();
+		if (model_extractor_) {
+			model_extractor_->run();
+			// With this delay we're making sure that the Gazebo callback related to models will be processed first,
+			// otherwise, the IDs of humans might not be consistent across system startups;
+			// Also, we assume that Gazebo operates at periods shorter than the delay time
+			ros::Duration(0.25).sleep();
+		}
+
+		if (link_extractor_) {
+			link_extractor_->run();
+		}
+	});
 }
 
 void PeopleExtraction::discoverGroupsConfiguration() {

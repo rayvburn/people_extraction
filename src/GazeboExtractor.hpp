@@ -42,12 +42,18 @@ public:
 		comp_filter_innovation_(comp_filter_innovation),
 		cb_time_diff_(cb_time_diff)
 	{
+		run_.store(false);
 		sub_ = nh.subscribe<Tsub>(
 			topic_name,
 			1,
 			&GazeboExtractor::callback,
 			this
 		);
+	}
+
+	/// Call to this method enables processing the subscriber's callbacks
+	void run() {
+		run_.store(true);
 	}
 
 	inline std::map<std::string, std::pair<size_t, Tcontainer>> getPeople() const {
@@ -99,6 +105,11 @@ protected:
 		if (std::isnan(time_last_update_)) {
 			// omit the first callback
 			time_last_update_ = ros::Time::now().toSec();
+		}
+
+		// make sure that callback processing should be performed
+		if (!run_.load()) {
+			return;
 		}
 
 		if (msg->name.size() != msg->pose.size() || msg->name.size() != msg->twist.size()) {
@@ -297,6 +308,7 @@ protected:
 
 	ros::Subscriber sub_;
 	mutable std::mutex mutex_;
+	std::atomic<bool> run_;
 
 	/// @brief Algorithm looks for a model name that meets one of the given patterns
 	std::vector<std::string> name_patterns_;

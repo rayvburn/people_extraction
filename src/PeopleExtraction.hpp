@@ -25,6 +25,7 @@
 #include <tf2_ros/transform_listener.h>
 
 #include <mutex>
+#include <thread>
 
 #include "GazeboExtractor.hpp"
 #include "HuberoExtractor.hpp"
@@ -93,4 +94,5 @@ private:
 	std::string target_tf_frame_;
 
 	ros::Timer timer_pub_;
+	std::thread topics_waiter_;
 };
