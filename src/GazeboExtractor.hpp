@@ -56,6 +56,20 @@ public:
 	}
 
 	/**
+	 * @brief Evaluates whether the given @ref model_name matches the given @ref pattern
+	 */
+	static bool doesNameMatchPattern(
+		const std::string& model_name,
+		const std::string& pattern
+	) {
+		// try to find
+		if (model_name.find(pattern) == std::string::npos) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
 	 * @brief Evaluates whether the given @ref model_name matches any pattern given by @ref patterns
 	 *
 	 * @param model_name
@@ -67,8 +81,7 @@ public:
 		const std::vector<std::string>& patterns
 	) {
 		for (const auto& pattern: patterns) {
-			// try to find
-			if (model_name.find(pattern) == std::string::npos) {
+			if (!doesNameMatchPattern(model_name, pattern)) {
 				continue;
 			}
 			return {true, pattern};
@@ -106,57 +119,56 @@ protected:
 		// update internal database dynamically
 		size_t models_found = 0;
 		size_t models_total = msg->name.size();
-		for (size_t i = 0; i < models_total; i++) {
-			// investigated object - obtain only the name at this stage
-			const auto& name = msg->name.at(i);
-			// check whether a model with a given name is of our interest (according to the naming patterns)
-			bool pattern_matched = false;
-			std::string pattern;
-			std::tie(pattern_matched, pattern) = doesNameMatchPatterns(name, name_patterns_);
-			if (!pattern_matched) {
-				continue;
-			}
+		// Iterate over the name patterns to ensure consistent ID assignment order
+		for (const auto& pattern: name_patterns_) {
+			for (size_t i = 0; i < models_total; i++) {
+				// investigated object - obtain only the name at this stage
+				const auto& name = msg->name.at(i);
+				// check whether a model with a given name is of our interest (according to the naming pattern)
+				if (!doesNameMatchPattern(name, pattern)) {
+					continue;
+				}
 
-			models_found++;
-			Tcontainer model;
-			model.model_name = name;
-			model.pose = msg->pose.at(i);
-			model.twist = msg->twist.at(i);
+				models_found++;
+				Tcontainer model;
+				model.model_name = name;
+				model.pose = msg->pose.at(i);
+				model.twist = msg->twist.at(i);
 
-			std::vector<double> transform;
-			if (transforms_.find(pattern) != transforms_.cend()) {
-				transform = transforms_[pattern];
-			} else {
-				transform = std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-			}
+				std::vector<double> transform;
+				if (transforms_.find(pattern) != transforms_.cend()) {
+					transform = transforms_[pattern];
+				} else {
+					transform = std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+				}
 
-			// check whether the person already exists in the internal database (only need ModelState update then)
-			if (doesPersonExist(name)) {
-				// manually compute the new state a some Gazebo model might report wrong velocities
-				model = computeState(
-					people_[name].second, // previously saved "model"
-					model,
-					transform,
-					time_diff
+				// check whether the person already exists in the internal database (only need ModelState update then)
+				if (doesPersonExist(name)) {
+					// manually compute the new state a some Gazebo model might report wrong velocities
+					model = computeState(
+						people_[name].second, // previously saved "model"
+						model,
+						transform,
+						time_diff
+					);
+					people_[name].second = model;
+					continue;
+				}
+
+				// special stage for a proper initialization
+				std::tie(model, std::ignore, std::ignore, std::ignore) = computeStateTransformed(model, transform);
+				// new model - assign an ID and update its ModelState
+				people_[name] = {id_ref_.load(), model};
+				// increment the reference ID counter
+				id_ref_++;
+				ROS_INFO(
+					"Tracking a new person '%s' (ID: '%lu'), detected from naming pattern: '%s'",
+					people_[name].second.model_name.c_str(),
+					people_[name].first,
+					pattern.c_str()
 				);
-				people_[name].second = model;
-				continue;
 			}
-
-			// special stage for a proper initialization
-			std::tie(model, std::ignore, std::ignore, std::ignore) = computeStateTransformed(model, transform);
-			// new model - assign an ID and update its ModelState
-			people_[name] = {id_ref_.load(), model};
-			// increment the reference ID counter
-			id_ref_++;
-			ROS_INFO(
-				"Tracking a new person '%s' (ID: '%lu'), detected from naming pattern: '%s'",
-				people_[name].second.model_name.c_str(),
-				people_[name].first,
-				pattern.c_str()
-			);
 		}
-
 		// possibly delete renamed/destroyed objects
 		deleteDestroyedPerson(msg->name);
 	}
