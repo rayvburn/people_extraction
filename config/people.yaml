@@ -1,8 +1,38 @@
-gazebo_frame: "world"
-target_frame: "map"
-callback_omits: 25 # each n-th simulator callback will be processed
+# The example configuration fits https://github.com/aws-robotics/aws-robomaker-hospital-world (with some modifications)
+model_name_patterns: [
+  "actor",
+]
 
-people_topic: "/people"
-position_topic: "/people_measurements"
+link_name_patterns: [
+  "Scrubs",
+  "PatientWheelChair",
+  "MaleVisitorSit",
+  "VisitorKidSit",
+  "FemaleVisitor",
+]
 
-model_name_patterns: ["person", "actor"]
+# Additional transforms to be applied for some specific models
+transforms:
+  # the key here must match the "name patterns" above
+  actor: [
+    # transform is applied to elements one by one;
+    # the order of elements is: x, y, z, roll, pitch, yaw
+    +0.0,
+    +0.0,
+    -1.03,
+    -1.5708,
+    +0.0,
+    -1.5708
+  ]
+
+groups:
+  # define names of groups so they can be read as separate ROS parameters (whole dicts cannot be passed as ROS params)
+  names: [
+    "GroupDesk"
+  ]
+  # specify names of entities (values) involved in each group (keys)
+  GroupDesk: [
+    "Scrubs_Group_01",
+    "Scrubs_Group_02",
+    "FemaleVisitor_Group_01"
+  ]
